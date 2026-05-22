@@ -1,0 +1,28 @@
+# Build outputs
+/build/
+/out/
+/cmake-build-*/
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+CTestTestfile.cmake
+Testing/
+compile_commands.json
+
+# Compilers
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.dll
+*.dylib
+*.exe
+
+# Editors
+.vscode/
+.idea/
+*.swp
+
