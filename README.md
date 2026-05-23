@@ -1,16 +1,17 @@
 # loxperm
 
-Permissive / interlock evaluator with explainable deny mask for embedded C firmware.
+[![ci](https://github.com/Vanderhell/loxperm/actions/workflows/ci.yml/badge.svg)](https://github.com/Vanderhell/loxperm/actions/workflows/ci.yml)
+[![release](https://github.com/Vanderhell/loxperm/actions/workflows/release.yml/badge.svg)](https://github.com/Vanderhell/loxperm/actions/workflows/release.yml)
 
-`loxperm` is a small, heap-free **C99** single-header library that evaluates a set of
-named conditions and decides whether an action is permitted to start (permissive)
-or must continue to be allowed (interlock).
+Permissive / interlock evaluator with an explainable deny mask for embedded C firmware.
 
-When the action is denied, `loxperm` tells you **which specific conditions caused
-the denial**, including first-out detection.
+`loxperm` is a small, heap-free C99 single-header library that evaluates a set of named conditions and decides whether an action is permitted to start
+(permissive) or must continue to be allowed (interlock).
+
+When the action is denied, `loxperm` tells you which specific conditions caused the denial, including first-out detection.
 
 ```c
-#include "loxperm/loxperm.h"
+#include <loxperm/loxperm.h>
 
 enum { COND_VALVE_OPEN, COND_LEVEL_OK, COND_TEMP_OK, COND_ARMED };
 
@@ -35,71 +36,65 @@ if (loxperm_is_permitted(&pump_start, now_ms)) {
 } else {
     loxperm_mask_t deny = loxperm_deny_mask(&pump_start);
     int first_out = loxperm_first_out(&pump_start);
+    (void)deny;
+    (void)first_out;
 }
 ```
 
-## What `loxperm` is
+## Properties
 
-- a set of named boolean conditions, each with its own qualifier time
-- an aggregate **permitted / denied** verdict
-- a **deny mask** showing which conditions caused the denial
-- a **first-out** index identifying which condition tripped first
-- optional **latching** (once tripped, condition stays denied until reset)
-- optional **bypass** for maintenance
-
-## What `loxperm` is not
-
-- Not a safety library. No SIL claim, no IEC 61508 conformance.
-- Not a configuration tool. You define conditions in C.
-- Not an HMI. You render masks/tags yourself.
-
-## Permissive vs interlock — which is which
-
-- A **permissive** check is evaluated only at the *start* of an action.
-  Once the action is running, the permissive does not stop it.
-  → Configure conditions with `latching=false` and call `loxperm_is_permitted()`
-  only at the start.
-
-- An **interlock** check is evaluated continuously while the action is running.
-  If any condition trips, the action must stop.
-  → Configure conditions with `latching=true` (and/or keep evaluating every tick)
-  and call `loxperm_is_permitted()` continuously.
-
-More details: `docs/permissive-vs-interlock.md`.
-
-## Integration with the Lox family
-
-- `microhealth` — provides condition booleans.
-- `loxalarm` — alarm states can be conditions in a chain.
-- `microlog` — denial events with reason mask.
-- `microsh` — `perm list`, `perm why-not`, `perm bypass-on/off`.
-- `microconf` — chain configuration (qualifier times, latching flags).
-- `loxseq` — sequencer can gate each step on a chain.
-
-See: `docs/integration.md`.
+- Header-only: all public API + implementation in `include/loxperm/loxperm.h` (caller includes the header).
+- Heap-free: caller-owned state in `loxperm_chain_t`.
+- Deterministic: no floating point, no hidden global mutable runtime state.
 
 ## Layout
 
-- `include/loxperm/loxperm.h` — public header + implementation
-- `examples/` — example programs
-- `tests/` — minimal unit tests (no external framework)
-- `docs/` — guides and scenarios
+- `include/loxperm/loxperm.h` - public header + implementation
+- `examples/` - example programs
+- `tests/` - unit tests (no external framework)
+- `docs/` - guides, scenarios, limitations, evidence
 
 ## Build & test (CMake)
 
 ```sh
 cmake -S . -B build
-cmake --build build
-ctest --test-dir build
+cmake --build build --config Release
+ctest --test-dir build --output-on-failure -C Release
 ```
 
-On Visual Studio generators (Windows), add a configuration:
+On single-config generators (Makefiles/Ninja), `--config Release` / `-C Release` are not needed.
+
+## Install & consume (CMake package)
+
+Install:
 
 ```sh
-cmake --build build --config Release
-ctest --test-dir build -C Release
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+cmake --install build --prefix dist
 ```
+
+Consume:
+
+```cmake
+find_package(loxperm CONFIG REQUIRED)
+target_link_libraries(my_app PRIVATE loxperm::loxperm)
+```
+
+And include:
+
+```c
+#include <loxperm/loxperm.h>
+```
+
+## Docs
+
+- Scenarios and test mapping: `docs/scenarios.md`
+- Limitations: `docs/limitations.md`
+- Test plan: `docs/test-plan.md`
+- Evidence matrix: `docs/evidence-matrix.md`
 
 ## License
 
 MIT. See `LICENSE`.
+

@@ -1,29 +1,26 @@
-# loxperm — Integration with the Lox family
+# loxperm - Integration with the Lox family
 
 ## Composition map
 
 ```
-   conditions from:
-     - microhealth (boolean sensor states)
-     - loxalarm    (alarm.is_active or alarm.needs_attention)
-     - microconf   (operator mode flags)
-            │
-            ▼
-      ┌──────────┐    deny_mask, first_out, bypass_mask ───► HMI
-      │ loxperm   │
-      └─────┬────┘
-            │ permitted?
-            ▼
-      action gate (pump start, OTA begin, sequence step)
-            │
-            ▼
-       microlog (audit trail)
+conditions from:
+  - microhealth (boolean sensor states)
+  - loxalarm    (alarm.is_active or alarm.needs_attention)
+  - microconf   (operator mode flags)
+        |
+        v
+     loxperm  -- deny_mask / first_out / bypass_mask --> HMI
+        |
+        v
+  action gate (pump start, OTA begin, sequence step)
+        |
+        v
+    microlog (audit trail)
 ```
 
-## With `microhealth`
+## With microhealth
 
-`microhealth` produces booleans (threshold crossings, range checks).
-Feed those into `loxperm`:
+`microhealth` produces booleans (threshold crossings, range checks). Feed those into `loxperm`:
 
 ```c
 loxperm_set(&chain, COND_LEVEL_OK,
@@ -31,7 +28,7 @@ loxperm_set(&chain, COND_LEVEL_OK,
             now_ms);
 ```
 
-## With `loxalarm`
+## With loxalarm
 
 An alarm state can be a condition. Common patterns:
 
@@ -48,7 +45,7 @@ loxperm_set(&chain, COND_ALARMS_QUIET,
             now_ms);
 ```
 
-## With `microconf`
+## With microconf
 
 Store qualifier times and latching flags in your config:
 
@@ -70,7 +67,7 @@ pump_defs[0] = (loxperm_condition_def_t){
 };
 ```
 
-## With `microsh`
+## With microsh
 
 Operator commands for the shell:
 
@@ -101,7 +98,7 @@ microsh_register(&sh, "perm",         sh_perm_status);
 microsh_register(&sh, "perm-bypass",  sh_perm_bypass);
 ```
 
-## With `microlog`
+## With microlog
 
 Log denial transitions:
 
@@ -118,7 +115,7 @@ if (loxperm_just_permitted(&chain)) {
 }
 ```
 
-## With `loxseq`
+## With loxseq
 
 A sequencer can gate each step on a `loxperm` chain:
 
@@ -131,10 +128,9 @@ loxseq_step_t step = {
 };
 ```
 
-## With `loxguard`
+## With loxguard
 
-Guard the evaluation if the chain depends on parsers or other risky
-inputs:
+Guard the evaluation if the chain depends on parsers or other risky inputs:
 
 ```c
 LOX_GUARD_BLOCK(perm_eval_guard) {

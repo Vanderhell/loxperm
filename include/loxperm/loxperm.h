@@ -106,7 +106,7 @@ typedef struct {
     size_t          condition_count;
     loxperm_mask_t  current_deny_mask;   /* bit set => denying right now */
     int             first_out_index;     /* -1 if currently permitted    */
-    uint32_t        denial_count;        /* lifetime                     */
+    uint32_t        denial_count;        /* lifetime; saturates at UINT32_MAX */
 
     /* --- internal --- */
     const loxperm_condition_def_t *defs;
@@ -132,6 +132,11 @@ typedef struct {
     uint32_t       denial_count;
 } loxperm_snapshot_t;
 
+/* Snapshot integrity note:
+ * loxperm_snapshot_t does not include a CRC or other torn-write protection.
+ * If snapshots are stored in a backend that can corrupt or tear writes, the
+ * caller/storage layer must provide integrity/atomicity. */
+
 /* ---------------------------------------------------------------------- */
 /* Internal helpers                                                       */
 /* ---------------------------------------------------------------------- */
@@ -149,7 +154,15 @@ static inline bool loxperm__index_ok(const loxperm_chain_t *c, size_t index) {
 }
 
 static inline loxperm_mask_t loxperm__bit(size_t i) {
-    return (loxperm_mask_t)1u << i;
+    return ((loxperm_mask_t)1) << i;
+}
+
+static inline bool loxperm__mask_bits_within_count(loxperm_mask_t m, size_t count) {
+    const size_t width = sizeof(loxperm_mask_t) * 8u;
+    if (count == 0) return m == 0;
+    if (count >= width) return true;
+    loxperm_mask_t allowed = (((loxperm_mask_t)1) << count) - 1;
+    return (m & ~allowed) == 0;
 }
 
 /* ---------------------------------------------------------------------- */
@@ -294,7 +307,9 @@ static inline loxperm_err_t loxperm_evaluate(loxperm_chain_t *c, uint32_t now_ms
     /* Transition bookkeeping. */
     if (c->last_permitted && !permitted) {
         c->just_denied_flag = true;
-        c->denial_count++;
+        if (c->denial_count != UINT32_MAX) {
+            c->denial_count++;
+        }
 
         /* First-out: choose the denying condition with the earliest denied timestamp.
          * If timestamps are equal/unknown, choose the lowest index for determinism. */
@@ -446,9 +461,25 @@ static inline loxperm_err_t loxperm_snapshot_load(loxperm_chain_t *c,
                                                   size_t count,
                                                   const loxperm_snapshot_t *snap,
                                                   uint32_t now_ms) {
-    if (!c || !snap) return LOXPERM_ERR_INVALID_ARG;
+    if (!c) return LOXPERM_ERR_INVALID_ARG;
+    if (!snap) return LOXPERM_ERR_INVALID_ARG;
+    if (count != 0 && defs == NULL) return LOXPERM_ERR_INVALID_ARG;
+    if (count > LOXPERM_MAX_CONDITIONS) return LOXPERM_ERR_TOO_MANY;
     if (snap->version != 1) return LOXPERM_ERR_INVALID_ARG;
     if (snap->condition_count != (uint16_t)count) return LOXPERM_ERR_INVALID_ARG;
+
+    if (!loxperm__mask_bits_within_count(snap->latched_bad_mask, count)) return LOXPERM_ERR_INVALID_ARG;
+    if (!loxperm__mask_bits_within_count(snap->bypass_mask, count)) return LOXPERM_ERR_INVALID_ARG;
+
+    if (snap->first_out_index != -1) {
+        if (snap->first_out_index < 0) return LOXPERM_ERR_INVALID_ARG;
+        if ((size_t)snap->first_out_index >= count) return LOXPERM_ERR_INVALID_ARG;
+    }
+
+    for (size_t i = 0; i < count; ++i) {
+        if ((snap->bypass_mask & loxperm__bit(i)) != 0 && !defs[i].bypassable) return LOXPERM_ERR_INVALID_ARG;
+        if ((snap->latched_bad_mask & loxperm__bit(i)) != 0 && !defs[i].latching) return LOXPERM_ERR_INVALID_ARG;
+    }
 
     loxperm_err_t st = loxperm_chain_init(c, defs, count);
     if (st != LOXPERM_OK) return st;
@@ -460,6 +491,57 @@ static inline loxperm_err_t loxperm_snapshot_load(loxperm_chain_t *c,
         c->states[i].latched_bad = (snap->latched_bad_mask & loxperm__bit(i)) != 0;
         c->states[i].bypassed    = (snap->bypass_mask      & loxperm__bit(i)) != 0;
         c->states[i].last_set_at_ms = now_ms;
+    }
+
+    /* Recompute enough runtime state for consistent diagnostic getters immediately after load.
+     * Snapshot does not include inputs; caller is responsible for restoring inputs then calling
+     * loxperm_evaluate() as appropriate for their application. */
+    loxperm_mask_t deny_mask = 0;
+    for (size_t i = 0; i < c->condition_count; ++i) {
+        const loxperm_condition_def_t *d = &c->defs[i];
+        loxperm_condition_state_t *s = &c->states[i];
+
+        if (s->current) {
+            if (d->qualifier_ms == 0) {
+                s->qualified = true;
+            } else {
+                uint32_t held = loxperm__elapsed_ms(now_ms, s->became_true_at_ms);
+                s->qualified = (held >= d->qualifier_ms);
+            }
+        } else {
+            s->qualified = false;
+        }
+
+        bool ok_now = false;
+        if (s->bypassed) {
+            ok_now = true;
+        } else if (d->latching) {
+            ok_now = s->qualified && !s->latched_bad;
+        } else {
+            ok_now = s->qualified;
+        }
+
+        s->last_ok = ok_now;
+        if (!ok_now) deny_mask |= loxperm__bit(i);
+    }
+
+    c->current_deny_mask = deny_mask;
+    c->last_permitted = (deny_mask == 0);
+    c->last_eval_ms = now_ms;
+
+    if (deny_mask == 0) {
+        c->first_out_index = -1;
+    } else {
+        int fo = (int)snap->first_out_index;
+        if (fo >= 0 && (deny_mask & loxperm__bit((size_t)fo)) != 0) {
+            c->first_out_index = fo;
+        } else {
+            int lowest = -1;
+            for (size_t i = 0; i < c->condition_count; ++i) {
+                if (deny_mask & loxperm__bit(i)) { lowest = (int)i; break; }
+            }
+            c->first_out_index = lowest;
+        }
     }
 
     return LOXPERM_OK;

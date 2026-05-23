@@ -1,0 +1,73 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-test-and-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract release notes from CHANGELOG.md
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          VER="${TAG#v}"
+          if ! grep -q "^## \\[${VER}\\]" CHANGELOG.md; then
+            echo "CHANGELOG.md has no section for version ${VER}"
+            exit 1
+          fi
+          awk -v ver="${VER}" '
+            $0 ~ ("^## \\[" ver "\\]") { in=1; next }
+            in && $0 ~ "^## \\[" { exit }
+            in { print }
+          ' CHANGELOG.md > release_notes.md
+          if [ ! -s release_notes.md ]; then
+            echo "Extracted release notes are empty for ${VER}"
+            exit 1
+          fi
+
+      - name: Configure (Release)
+        run: cmake -S . -B build -DLOXPERM_WARNINGS_AS_ERRORS=ON -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Install (for install-tree archive)
+        run: cmake --install build --prefix install-tree
+
+      - name: Create source and install-tree archives
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          SRC="loxperm-${TAG}-src"
+          INST="loxperm-${TAG}-install"
+
+          mkdir -p dist/"$SRC"
+          cp -R include docs examples tests cmake dist/"$SRC"/
+          cp CMakeLists.txt README.md LICENSE CHANGELOG.md CONTRIBUTING.md SECURITY.md .editorconfig .gitattributes .gitignore dist/"$SRC"/
+
+          (cd dist && tar -czf "${SRC}.tar.gz" "$SRC")
+
+          mkdir -p dist/"$INST"
+          cp -R install-tree/. dist/"$INST"/
+          (cd dist && tar -czf "${INST}.tar.gz" "$INST")
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          body_path: release_notes.md
+          fail_on_unmatched_files: true
+          files: |
+            dist/*.tar.gz

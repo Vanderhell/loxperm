@@ -1,8 +1,10 @@
-# loxperm — Test scenarios (v0.1 acceptance)
+# loxperm - Test scenarios (v0.1 acceptance)
 
 All tests use a virtual clock; `now_ms` is supplied explicitly.
 
-## P01 — Empty chain is trivially permitted
+## P01 - Empty chain is trivially permitted
+
+Test: `loxperm_tests` (`test_P01_empty_chain`)
 
 ```
 init(c, defs=NULL, count=0)
@@ -11,7 +13,9 @@ expect: is_permitted(c, 0) == true
         first_out == -1
 ```
 
-## P02 — Single satisfied condition
+## P02 - Single satisfied condition
+
+Test: `loxperm_tests` (`test_P02_single_satisfied`)
 
 ```
 defs: [ {tag:"x"} ]
@@ -20,7 +24,9 @@ expect: is_permitted == true after qualifier (0 here)
         deny_mask == 0
 ```
 
-## P03 — Single condition denies
+## P03 - Single condition denies
+
+Test: `loxperm_tests` (`test_P03_single_denies`)
 
 ```
 defs: [ {tag:"x"} ]
@@ -30,7 +36,9 @@ expect: is_permitted == false
         first_out == 0
 ```
 
-## P04 — Qualifier suppresses transient OK
+## P04 - Qualifier suppresses transient OK
+
+Test: `loxperm_tests` (`test_P04_qualifier`)
 
 ```
 defs: [ {tag:"x", qualifier_ms:1000} ]
@@ -40,7 +48,9 @@ evaluate(c, 1000)  --> permitted
 expect: matches above
 ```
 
-## P05 — Transient OK during qualifier resets
+## P05 - Transient OK during qualifier resets
+
+Test: `loxperm_tests` (`test_P05_qualifier_resets`)
 
 ```
 defs: [ {tag:"x", qualifier_ms:1000} ]
@@ -51,7 +61,9 @@ evaluate(c, 1400) --> still not qualified (only 800 ms held)
 evaluate(c, 1600) --> qualified
 ```
 
-## P06 — Latching trip stays denied until reset
+## P06 - Latching trip stays denied until reset
+
+Test: `loxperm_tests` (`test_P06_latching_trip`)
 
 ```
 defs: [ {tag:"x", latching:true} ]
@@ -63,7 +75,9 @@ set(c, 0, true,  300)
 expect: now permitted after qualifier
 ```
 
-## P07 — First-out captures earliest transition
+## P07 - First-out captures earliest transition
+
+Test: `loxperm_tests` (`test_P07_first_out`)
 
 ```
 defs: [ a:{}, b:{}, c:{} ]  // all instant qualifier
@@ -76,7 +90,9 @@ expect: first_out == index(a)
         deny_mask has bits a and b
 ```
 
-## P08 — First-out resets when chain becomes permitted again
+## P08 - First-out resets when chain becomes permitted again
+
+Test: `loxperm_tests` (`test_P08_first_out_resets`)
 
 ```
 preconditions: chain denied with first_out == 1
@@ -88,7 +104,9 @@ later, condition 2 trips:
 expect: first_out == 2 (not 1)
 ```
 
-## P09 — Bypass on non-bypassable condition rejected
+## P09 - Bypass on non-bypassable condition rejected
+
+Test: `loxperm_tests` (`test_P09_bypass_rejected`)
 
 ```
 defs: [ {tag:"x", bypassable:false} ]
@@ -96,7 +114,9 @@ set_bypass(c, 0, true, 0, 1)
 expect: return LOXPERM_ERR_NOT_BYPASSABLE
 ```
 
-## P10 — Bypass forces OK regardless of input
+## P10 - Bypass forces OK regardless of input
+
+Test: `loxperm_tests` (`test_P10_bypass_forces_ok`)
 
 ```
 defs: [ {tag:"x", bypassable:true} ]
@@ -107,14 +127,18 @@ set(c, 0, false, 200)
 evaluate(c, 200)            --> permitted (still bypassed)
 ```
 
-## P11 — Just-denied / just-permitted are one-shot
+## P11 - Just-denied / just-permitted are one-shot
+
+Test: `loxperm_tests` (`test_P11_one_shot_flags`)
 
 ```
 sequence that transitions permitted -> denied -> permitted -> denied
 each transition: just_* flag set once and cleared on read
 ```
 
-## P12 — Snapshot round-trip preserves latched_bad and bypass
+## P12 - Snapshot round-trip preserves latched_bad and bypass
+
+Test: `loxperm_tests` (`test_P12_snapshot_roundtrip`)
 
 ```
 build chain with mixed latched-bad and bypass states
@@ -123,7 +147,9 @@ load into fresh chain
 expect: latched_bad_mask, bypass_mask, first_out match
 ```
 
-## P13 — Reset chain clears latched and bypass
+## P13 - Reset chain clears latched and bypass
+
+Test: `loxperm_tests` (`test_P13_reset_chain_clears_latch_and_bypass`)
 
 ```
 preconditions: some conditions latched-bad, some bypassed
@@ -133,14 +159,18 @@ expect: latched_bad_mask == 0
         denial_count preserved
 ```
 
-## P14 — Index out of range rejected
+## P14 - Index out of range rejected
+
+Test: `loxperm_tests` (`test_P14_index_out_of_range`)
 
 ```
 set(c, c.condition_count, true, 0)
 expect: LOXPERM_ERR_INDEX
 ```
 
-## P15 — Wide mask compile path
+## P15 - Wide mask compile path
+
+Test: `loxperm_tests_wide_mask` (`test_wide_mask_basics`)
 
 ```
 build with -DLOXPERM_WIDE_MASK

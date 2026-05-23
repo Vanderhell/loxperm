@@ -5,7 +5,40 @@ on:
   pull_request:
 
 jobs:
-  build-test:
+  header-self-contained:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        cc: [gcc, clang]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install compiler
+        run: |
+          sudo apt-get update
+          if [ "${{ matrix.cc }}" = "clang" ]; then sudo apt-get install -y clang; fi
+      - name: Header compiles standalone (default mask)
+        run: |
+          cat > /tmp/loxperm_header_smoke.c <<'EOF'
+          #include <loxperm/loxperm.h>
+          int main(void) {
+              loxperm_chain_t c;
+              (void)loxperm_chain_init(&c, NULL, 0);
+              (void)loxperm_is_permitted(&c, 0);
+              return 0;
+          }
+          EOF
+          ${{ matrix.cc }} -std=c99 -Wall -Wextra -Wpedantic -Werror -Iinclude -c /tmp/loxperm_header_smoke.c
+      - name: Header compiles standalone (wide mask)
+        run: |
+          cat > /tmp/loxperm_header_smoke_wide.c <<'EOF'
+          #define LOXPERM_WIDE_MASK 1
+          #include <loxperm/loxperm.h>
+          int main(void) { return (int)sizeof(loxperm_mask_t); }
+          EOF
+          ${{ matrix.cc }} -std=c99 -Wall -Wextra -Wpedantic -Werror -Iinclude -c /tmp/loxperm_header_smoke_wide.c
+
+  build-test-matrix:
     strategy:
       fail-fast: false
       matrix:
@@ -14,8 +47,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Configure
-        run: cmake -S . -B build
+      - name: Configure (Release)
+        run: cmake -S . -B build -DLOXPERM_WARNINGS_AS_ERRORS=ON ${{ runner.os != 'Windows' && '-DCMAKE_BUILD_TYPE=Release' || '' }}
 
       - name: Build (Windows)
         if: runner.os == 'Windows'
@@ -32,3 +65,115 @@ jobs:
       - name: Test (Unix)
         if: runner.os != 'Windows'
         run: ctest --test-dir build --output-on-failure
+
+      - name: Configure (Debug)
+        if: runner.os != 'Windows'
+        run: cmake -S . -B build-debug -DLOXPERM_WARNINGS_AS_ERRORS=ON -DCMAKE_BUILD_TYPE=Debug
+
+      - name: Build (Debug)
+        if: runner.os != 'Windows'
+        run: cmake --build build-debug
+
+      - name: Test (Debug)
+        if: runner.os != 'Windows'
+        run: ctest --test-dir build-debug --output-on-failure
+
+      - name: Build (Debug, Windows)
+        if: runner.os == 'Windows'
+        run: cmake --build build --config Debug
+
+      - name: Test (Debug, Windows)
+        if: runner.os == 'Windows'
+        run: ctest --test-dir build --output-on-failure -C Debug
+
+      - name: Run examples (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          ./build/loxperm_pump_start
+          ./build/loxperm_interlock_first_out
+
+      - name: Run examples (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          .\\build\\Release\\loxperm_pump_start.exe
+          .\\build\\Release\\loxperm_interlock_first_out.exe
+
+  ubuntu-gcc:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure (GCC, Release)
+        run: CC=gcc cmake -S . -B build-gcc -DLOXPERM_WARNINGS_AS_ERRORS=ON -DCMAKE_BUILD_TYPE=Release
+      - name: Build
+        run: cmake --build build-gcc
+      - name: Test
+        run: ctest --test-dir build-gcc --output-on-failure
+
+  ubuntu-clang:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install clang
+        run: sudo apt-get update && sudo apt-get install -y clang
+      - name: Configure (Clang, Release)
+        run: CC=clang cmake -S . -B build-clang -DLOXPERM_WARNINGS_AS_ERRORS=ON -DCMAKE_BUILD_TYPE=Release
+      - name: Build
+        run: cmake --build build-clang
+      - name: Test
+        run: ctest --test-dir build-clang --output-on-failure
+
+  ubuntu-sanitizers:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure (ASan/UBSan)
+        run: cmake -S . -B build-sanitize -DLOXPERM_ENABLE_SANITIZERS=ON -DLOXPERM_WARNINGS_AS_ERRORS=ON -DCMAKE_BUILD_TYPE=RelWithDebInfo
+      - name: Build
+        run: cmake --build build-sanitize
+      - name: Test
+        run: ctest --test-dir build-sanitize --output-on-failure
+
+  ubuntu-wide-mask:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure (Wide mask)
+        run: cmake -S . -B build-wide -DLOXPERM_WIDE_MASK=ON -DLOXPERM_WARNINGS_AS_ERRORS=ON -DCMAKE_BUILD_TYPE=Release
+      - name: Build
+        run: cmake --build build-wide
+      - name: Test
+        run: ctest --test-dir build-wide --output-on-failure
+
+  ubuntu-install-consumer-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure (Release)
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+      - name: Build
+        run: cmake --build build
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+      - name: Install smoke
+        run: cmake --install build --prefix dist
+      - name: Consumer smoke (find_package CONFIG)
+        run: |
+          set -euo pipefail
+          mkdir -p consumer
+          cat > consumer/CMakeLists.txt <<'EOF'
+          cmake_minimum_required(VERSION 3.16)
+          project(loxperm_consumer LANGUAGES C)
+          find_package(loxperm CONFIG REQUIRED)
+          add_executable(consumer main.c)
+          target_link_libraries(consumer PRIVATE loxperm::loxperm)
+          target_compile_features(consumer PRIVATE c_std_99)
+          EOF
+          cat > consumer/main.c <<'EOF'
+          #include <loxperm/loxperm.h>
+          int main(void) {
+              loxperm_chain_t c;
+              return loxperm_chain_init(&c, NULL, 0) == LOXPERM_OK ? 0 : 1;
+          }
+          EOF
+          cmake -S consumer -B consumer/build -DCMAKE_PREFIX_PATH="${PWD}/dist"
+          cmake --build consumer/build

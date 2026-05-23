@@ -1,7 +1,10 @@
 # Build outputs
 /build/
+/build-*/
 /out/
 /cmake-build-*/
+/dist/
+/consumer-smoke/
 
 # CMake
 CMakeCache.txt
@@ -25,4 +28,3 @@ compile_commands.json
 .vscode/
 .idea/
 *.swp
-

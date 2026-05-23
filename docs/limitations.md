@@ -1,4 +1,4 @@
-# loxperm — Limitations and non-goals
+# loxperm - Limitations and non-goals
 
 ## Not a safety library
 
@@ -17,8 +17,8 @@ schema, build that on top of `loxperm`.
 
 ## Conditions are booleans
 
-`loxperm` does not evaluate analogue thresholds, ratios, or rate-of-
-change. Compute the boolean upstream and feed it in.
+`loxperm` does not evaluate analogue thresholds, ratios, or rate-of-change.
+Compute the boolean upstream and feed it in.
 
 ## No quorum / voting
 
@@ -55,11 +55,29 @@ not:
 
 Those are policy decisions. Implement them in the layer above.
 
+## Snapshot integrity is the caller's job
+
+`loxperm_snapshot_t` does not include a CRC or other integrity checks. If you persist snapshots to
+flash/EEPROM or any backend that can tear writes, you must provide integrity and atomicity at that layer
+(for example: CRC, double-buffering with sequence numbers, or transactional storage).
+
+Snapshot load validates:
+
+- snapshot version and condition count
+- masks are within the chain size
+- bypass/latched bits are consistent with condition definitions
+
+It does not protect against corrupted or torn snapshots beyond these checks.
+
 ## Snapshot stores bypass state
 
-If you persist the snapshot and restore on boot, **bypassed conditions
-remain bypassed**. If your operating policy is "all bypasses clear on
-power cycle", call `loxperm_reset_chain()` after restore.
+If you persist the snapshot and restore on boot, bypassed conditions remain bypassed. If your operating policy
+is "all bypasses clear on power cycle", call `loxperm_reset_chain()` after restore.
+
+## denial_count saturation
+
+`denial_count` is a lifetime counter. When it reaches `UINT32_MAX`, it saturates and no longer increments.
+This avoids changing the permit/deny verdict due to counter overflow.
 
 ## Re-entrancy
 
@@ -67,12 +85,13 @@ Two threads may safely operate on two different chains. Two threads on
 the same chain require external synchronisation. The library has no
 mutex.
 
-## Max conditions
+## Max conditions / wide mask
 
-`LOXPERM_MAX_CONDITIONS` defaults to 32 (fits in `uint32_t` mask).
-Define `LOXPERM_WIDE_MASK` for 64. Beyond 64 conditions per chain, you
-must either split the chain or modify the implementation to use a bit
-array instead of a single integer.
+`LOXPERM_MAX_CONDITIONS` defaults to 32 (fits in a `uint32_t` mask).
+Define `LOXPERM_WIDE_MASK` for 64 (uses `uint64_t`).
+
+Unit tests include a dedicated wide-mask test (`loxperm_tests_wide_mask`) that initializes 64 conditions and
+verifies bit 63 behavior.
 
 ## Clock requirements
 
