@@ -18,10 +18,10 @@ static int tassert_int(int cond, const char *expr, const char *file, int line) {
 static int test_wide_mask_basics(void) {
     TASSERT(sizeof(loxperm_mask_t) == 8u);
 
-    loxperm_condition_def_t defs[64];
+    loxperm_condition_def_t defs[64] = {0};
     for (size_t i = 0; i < 64; ++i) defs[i] = (loxperm_condition_def_t){ .tag = "x" };
 
-    loxperm_chain_t c;
+    loxperm_chain_t c = {0};
     TASSERT(loxperm_chain_init(&c, defs, 64) == LOXPERM_OK);
 
     /* Make all satisfied, then trip index 63 and check highest bit. */
