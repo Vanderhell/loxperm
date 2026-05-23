@@ -33,7 +33,8 @@ static int test_wide_mask_basics(void) {
     TASSERT((loxperm_deny_mask(&c) & (((loxperm_mask_t)1) << 63)) != 0);
 
     /* Index 64 is out of range. */
-    TASSERT(loxperm_set(&c, 64, true, 2) == LOXPERM_ERR_INDEX);
+    volatile size_t oob = 64;
+    TASSERT(loxperm_set(&c, oob, true, 2) == LOXPERM_ERR_INDEX);
     return 0;
 }
 
