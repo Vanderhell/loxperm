@@ -133,10 +133,22 @@ Test: `loxperm_tests` (`test_P11_one_shot_flags`)
 
 ```
 sequence that transitions permitted -> denied -> permitted -> denied
-each transition: just_* flag set once and cleared on read
+each transition: just_* flag persists across no-transition re-evaluation
+until explicitly consumed, then clears on read
 ```
 
-## P12 - Snapshot round-trip preserves latched_bad and bypass
+## P12 - Bypass operator metadata tracks the last toggle
+
+Test: `loxperm_tests` (`test_P12_bypass_operator_metadata`)
+
+```
+enable bypass with operator 7
+disable bypass with operator 9
+expect: latest operator ID is 9
+reset clears metadata to 0
+```
+
+## P13 - Snapshot round-trip preserves latched_bad and bypass
 
 Test: `loxperm_tests` (`test_P12_snapshot_roundtrip`)
 
@@ -147,7 +159,7 @@ load into fresh chain
 expect: latched_bad_mask, bypass_mask, first_out match
 ```
 
-## P13 - Reset chain clears latched and bypass
+## P14 - Reset chain clears latched and bypass
 
 Test: `loxperm_tests` (`test_P13_reset_chain_clears_latch_and_bypass`)
 
@@ -159,7 +171,7 @@ expect: latched_bad_mask == 0
         denial_count preserved
 ```
 
-## P14 - Index out of range rejected
+## P15 - Index out of range rejected
 
 Test: `loxperm_tests` (`test_P14_index_out_of_range`)
 
@@ -168,7 +180,7 @@ set(c, c.condition_count, true, 0)
 expect: LOXPERM_ERR_INDEX
 ```
 
-## P15 - Wide mask compile path
+## P16 - Wide mask compile path
 
 Test: `loxperm_tests_wide_mask` (`test_wide_mask_basics`)
 
@@ -177,4 +189,3 @@ build with -DLOXPERM_WIDE_MASK
 verify sizeof(loxperm_mask_t) == 8
 verify chain with 64 conditions works
 ```
-

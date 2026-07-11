@@ -166,17 +166,37 @@ static int test_P11_one_shot_flags(void) {
 
     TASSERT(loxperm_set(&c, 0, false, 10) == LOXPERM_OK);
     TASSERT(loxperm_is_permitted(&c, 10) == false);
+    TASSERT(loxperm_is_permitted(&c, 11) == false);
     TASSERT(loxperm_just_denied(&c) == true);
     TASSERT(loxperm_just_denied(&c) == false);
 
     TASSERT(loxperm_set(&c, 0, true, 20) == LOXPERM_OK);
     TASSERT(loxperm_is_permitted(&c, 20) == true);
+    TASSERT(loxperm_is_permitted(&c, 21) == true);
     TASSERT(loxperm_just_permitted(&c) == true);
     TASSERT(loxperm_just_permitted(&c) == false);
     return 0;
 }
 
-static int test_P12_snapshot_roundtrip(void) {
+static int test_P12_bypass_operator_metadata(void) {
+    const loxperm_condition_def_t defs[] = { { .tag = "x", .bypassable = true } };
+    loxperm_chain_t c;
+    TASSERT(loxperm_chain_init(&c, defs, 1) == LOXPERM_OK);
+
+    TASSERT(loxperm_set_bypass(&c, 0, true, 0, 7) == LOXPERM_OK);
+    TASSERT(loxperm_is_bypassed(&c, 0) == true);
+    TASSERT(loxperm_bypass_operator_id(&c, 0) == 7);
+
+    TASSERT(loxperm_set_bypass(&c, 0, false, 10, 9) == LOXPERM_OK);
+    TASSERT(loxperm_is_bypassed(&c, 0) == false);
+    TASSERT(loxperm_bypass_operator_id(&c, 0) == 9);
+
+    TASSERT(loxperm_reset_chain(&c, 20) == LOXPERM_OK);
+    TASSERT(loxperm_bypass_operator_id(&c, 0) == 0);
+    return 0;
+}
+
+static int test_P13_snapshot_roundtrip(void) {
     const loxperm_condition_def_t defs[] = {
         { .tag = "a", .latching = true },
         { .tag = "b", .bypassable = true },
@@ -211,7 +231,7 @@ static int test_P12_snapshot_roundtrip(void) {
     return 0;
 }
 
-static int test_P13_reset_chain_clears_latch_and_bypass(void) {
+static int test_P14_reset_chain_clears_latch_and_bypass(void) {
     const loxperm_condition_def_t defs[] = {
         { .tag = "a", .latching = true },
         { .tag = "b", .bypassable = true },
@@ -233,7 +253,7 @@ static int test_P13_reset_chain_clears_latch_and_bypass(void) {
     return 0;
 }
 
-static int test_P14_index_out_of_range(void) {
+static int test_P15_index_out_of_range(void) {
     const loxperm_condition_def_t defs[] = { { .tag = "x" } };
     loxperm_chain_t c;
     TASSERT(loxperm_chain_init(&c, defs, 1) == LOXPERM_OK);
@@ -496,6 +516,72 @@ static int test_snapshot_valid_accept_and_runtime_consistent(void) {
     return 0;
 }
 
+static int test_P16_portable_snapshot_wire_roundtrip(void) {
+    const loxperm_condition_def_t defs[] = {
+        { .tag = "a", .latching = true },
+        { .tag = "b", .bypassable = true },
+    };
+
+    loxperm_chain_t c;
+    TASSERT(loxperm_chain_init(&c, defs, 2) == LOXPERM_OK);
+    TASSERT(loxperm_set(&c, 0, true, 0) == LOXPERM_OK);
+    TASSERT(loxperm_set(&c, 1, true, 0) == LOXPERM_OK);
+    TASSERT(loxperm_is_permitted(&c, 0) == true);
+    TASSERT(loxperm_set(&c, 0, false, 10) == LOXPERM_OK);
+    TASSERT(loxperm_set_bypass(&c, 1, true, 20, 7) == LOXPERM_OK);
+    (void)loxperm_is_permitted(&c, 20);
+
+    loxperm_snapshot_t snap;
+    TASSERT(loxperm_snapshot_save(&c, &snap) == LOXPERM_OK);
+
+    uint8_t wire[LOXPERM_SNAPSHOT_WIRE_SIZE];
+    const uint8_t expected_wire[LOXPERM_SNAPSHOT_WIRE_SIZE] = {
+        0x4d, 0x58, 0x50, 0x4c, 0x01, 0x01, 0x38, 0x00,
+        0xdd, 0xcc, 0xbb, 0xaa, 0x88, 0x77, 0x66, 0x55,
+        0x44, 0x33, 0x22, 0x11, 0x02, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00,
+        0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    };
+
+    TASSERT(loxperm_snapshot_encode(&snap, 0x1122334455667788ull, 0xAABBCCDDu, wire, sizeof(wire)) == LOXPERM_OK);
+    TASSERT(memcmp(wire, expected_wire, sizeof(wire)) == 0);
+
+    loxperm_snapshot_t decoded;
+    uint64_t config_id = 0;
+    uint32_t schema_id = 0;
+    TASSERT(loxperm_snapshot_decode(&decoded, &config_id, &schema_id, wire, sizeof(wire)) == LOXPERM_OK);
+    TASSERT(config_id == 0x1122334455667788ull);
+    TASSERT(schema_id == 0xAABBCCDDu);
+    TASSERT(memcmp(&decoded, &snap, sizeof(snap)) == 0);
+
+    uint8_t corrupted[LOXPERM_SNAPSHOT_WIRE_SIZE];
+    memcpy(corrupted, wire, sizeof(corrupted));
+    corrupted[4] = 0x02;
+    TASSERT(loxperm_snapshot_decode(&decoded, &config_id, &schema_id, corrupted, sizeof(corrupted)) == LOXPERM_ERR_INVALID_ARG);
+
+    memcpy(corrupted, wire, sizeof(corrupted));
+    corrupted[22] = 1;
+    TASSERT(loxperm_snapshot_decode(&decoded, &config_id, &schema_id, corrupted, sizeof(corrupted)) == LOXPERM_ERR_INVALID_ARG);
+
+    memcpy(corrupted, wire, sizeof(corrupted));
+    TASSERT(loxperm_snapshot_decode(&decoded, &config_id, &schema_id, corrupted, sizeof(corrupted) - 1u) == LOXPERM_ERR_INVALID_ARG);
+    TASSERT(loxperm_snapshot_decode(&decoded, &config_id, &schema_id, corrupted, sizeof(corrupted) + 1u) == LOXPERM_ERR_INVALID_ARG);
+
+    TASSERT(loxperm_snapshot_load_wire(NULL, defs, 2, 0x1122334455667788ull, 0xAABBCCDDu, wire, sizeof(wire), 100) == LOXPERM_ERR_INVALID_ARG);
+
+    loxperm_chain_t d;
+    TASSERT(loxperm_snapshot_load_wire(&d, defs, 2, 0x1122334455667788ull, 0xAABBCCDDu, wire, sizeof(wire), 100) == LOXPERM_OK);
+    TASSERT(d.denial_count == snap.denial_count);
+    TASSERT(loxperm_bypass_mask(&d) == (loxperm_mask_t)(1u << 1));
+    TASSERT(loxperm_first_out(&d) == 0);
+    TASSERT((loxperm_deny_mask(&d) & 1u) != 0);
+    TASSERT(loxperm_snapshot_load_wire(&d, defs, 2, 0x1122334455667788ull, 0xAABBCCDDu + 1u, wire, sizeof(wire), 100) == LOXPERM_ERR_INVALID_ARG);
+    TASSERT(loxperm_snapshot_load_wire(&d, defs, 2, 0x1122334455667788ull + 1u, 0xAABBCCDDu, wire, sizeof(wire), 100) == LOXPERM_ERR_INVALID_ARG);
+    return 0;
+}
+
 int main(void) {
     int rc = 0;
     rc |= test_P01_empty_chain();
@@ -509,9 +595,10 @@ int main(void) {
     rc |= test_P09_bypass_rejected();
     rc |= test_P10_bypass_forces_ok();
     rc |= test_P11_one_shot_flags();
-    rc |= test_P12_snapshot_roundtrip();
-    rc |= test_P13_reset_chain_clears_latch_and_bypass();
-    rc |= test_P14_index_out_of_range();
+    rc |= test_P12_bypass_operator_metadata();
+    rc |= test_P13_snapshot_roundtrip();
+    rc |= test_P14_reset_chain_clears_latch_and_bypass();
+    rc |= test_P15_index_out_of_range();
     rc |= test_chain_init_invalid_args();
     rc |= test_api_null_chain_safe_values();
     rc |= test_api_uninitialised_chain_safe_values();
@@ -523,6 +610,7 @@ int main(void) {
     rc |= test_denial_count_saturates();
     rc |= test_snapshot_invalid_inputs_rejected();
     rc |= test_snapshot_valid_accept_and_runtime_consistent();
+    rc |= test_P16_portable_snapshot_wire_roundtrip();
 
     if (rc == 0) {
         printf("OK\n");

@@ -3,7 +3,7 @@ name: release
 on:
   push:
     tags:
-      - "v*"
+      - "v*.*.*"
 
 permissions:
   contents: write
@@ -14,37 +14,71 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Extract release notes from CHANGELOG.md
+      - name: Verify semantic tag and version truth
         shell: bash
         run: |
           set -euo pipefail
           TAG="${GITHUB_REF_NAME}"
+          if [[ ! "${TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Release tags must be exact semantic versions like v0.1.0"
+            exit 1
+          fi
+
           VER="${TAG#v}"
+          HEADER_VER="$(awk '
+            /^#define LOXPERM_VERSION_MAJOR/ { major = $3 }
+            /^#define LOXPERM_VERSION_MINOR/ { minor = $3 }
+            /^#define LOXPERM_VERSION_PATCH/ { patch = $3 }
+            END { print major "." minor "." patch }
+          ' include/loxperm/loxperm.h)"
+          CMAKE_VER="$(awk '/^project\(loxperm VERSION / { print $3 }' CMakeLists.txt)"
+
+          if [[ "${HEADER_VER}" != "${VER}" ]]; then
+            echo "Header version ${HEADER_VER} does not match tag ${VER}"
+            exit 1
+          fi
+          if [[ "${CMAKE_VER}" != "${VER}" ]]; then
+            echo "CMake version ${CMAKE_VER} does not match tag ${VER}"
+            exit 1
+          fi
           if ! grep -q "^## \\[${VER}\\]" CHANGELOG.md; then
             echo "CHANGELOG.md has no section for version ${VER}"
             exit 1
           fi
+
           awk -v ver="${VER}" '
             $0 ~ ("^## \\[" ver "\\]") { in=1; next }
             in && $0 ~ "^## \\[" { exit }
             in { print }
           ' CHANGELOG.md > release_notes.md
+
           if [ ! -s release_notes.md ]; then
             echo "Extracted release notes are empty for ${VER}"
             exit 1
           fi
 
-      - name: Configure (Release)
-        run: cmake -S . -B build -DLOXPERM_WARNINGS_AS_ERRORS=ON -DCMAKE_BUILD_TYPE=Release
+      - name: Configure, build, and test default Release
+        run: |
+          cmake -S . -B build -DLOXPERM_WARNINGS_AS_ERRORS=ON -DCMAKE_BUILD_TYPE=Release
+          cmake --build build
+          ctest --test-dir build --output-on-failure
 
-      - name: Build
-        run: cmake --build build
+      - name: Configure, build, and test wide Release
+        run: |
+          cmake -S . -B build-wide -DLOXPERM_WIDE_MASK=ON -DLOXPERM_WARNINGS_AS_ERRORS=ON -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-wide
+          ctest --test-dir build-wide --output-on-failure
 
-      - name: Test
-        run: ctest --test-dir build --output-on-failure
+      - name: Configure, build, and test sanitizers
+        run: |
+          cmake -S . -B build-sanitize -DLOXPERM_ENABLE_SANITIZERS=ON -DLOXPERM_WARNINGS_AS_ERRORS=ON -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          cmake --build build-sanitize
+          ctest --test-dir build-sanitize --output-on-failure
 
-      - name: Install (for install-tree archive)
-        run: cmake --install build --prefix install-tree
+      - name: Install packages
+        run: |
+          cmake --install build --prefix dist-default
+          cmake --install build-wide --prefix dist-wide
 
       - name: Create source and install-tree archives
         shell: bash
@@ -54,15 +88,65 @@ jobs:
           SRC="loxperm-${TAG}-src"
           INST="loxperm-${TAG}-install"
 
-          mkdir -p dist/"$SRC"
-          cp -R include docs examples tests cmake dist/"$SRC"/
-          cp CMakeLists.txt README.md LICENSE CHANGELOG.md CONTRIBUTING.md SECURITY.md .editorconfig .gitattributes .gitignore dist/"$SRC"/
+          mkdir -p dist/"${SRC}"
+          cp -R include docs examples tests cmake dist/"${SRC}"/
+          cp CMakeLists.txt README.md LICENSE CHANGELOG.md CONTRIBUTING.md SECURITY.md .editorconfig .gitattributes .gitignore dist/"${SRC}"/
 
-          (cd dist && tar -czf "${SRC}.tar.gz" "$SRC")
+          (cd dist && tar -czf "${SRC}.tar.gz" "${SRC}")
 
-          mkdir -p dist/"$INST"
-          cp -R install-tree/. dist/"$INST"/
-          (cd dist && tar -czf "${INST}.tar.gz" "$INST")
+          mkdir -p dist/"${INST}"
+          cp -R dist-default/. dist/"${INST}"/
+          (cd dist && tar -czf "${INST}.tar.gz" "${INST}")
+
+      - name: Extract archives and smoke test consumers
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          SRC="loxperm-${TAG}-src"
+          INST="loxperm-${TAG}-install"
+
+          mkdir -p verify
+          tar -xzf "dist/${SRC}.tar.gz" -C verify
+          tar -xzf "dist/${INST}.tar.gz" -C verify
+
+          mkdir -p verify/c-consumer
+          cat > verify/c-consumer/CMakeLists.txt <<'EOF'
+          cmake_minimum_required(VERSION 3.16)
+          project(loxperm_consumer_c LANGUAGES C)
+          find_package(loxperm CONFIG REQUIRED)
+          add_executable(consumer main.c)
+          target_link_libraries(consumer PRIVATE loxperm::loxperm)
+          target_compile_features(consumer PRIVATE c_std_99)
+          EOF
+          cat > verify/c-consumer/main.c <<'EOF'
+          #include <loxperm/loxperm.h>
+          int main(void) {
+              loxperm_chain_t c;
+              return loxperm_chain_init(&c, NULL, 0) == LOXPERM_OK ? 0 : 1;
+          }
+          EOF
+          cmake -S verify/c-consumer -B verify/c-consumer/build -DCMAKE_PREFIX_PATH="${PWD}/verify/${INST}"
+          cmake --build verify/c-consumer/build
+
+          mkdir -p verify/cpp-consumer
+          cat > verify/cpp-consumer/CMakeLists.txt <<'EOF'
+          cmake_minimum_required(VERSION 3.16)
+          project(loxperm_consumer_cpp LANGUAGES CXX)
+          find_package(loxperm CONFIG REQUIRED)
+          add_executable(consumer main.cpp)
+          target_link_libraries(consumer PRIVATE loxperm::loxperm)
+          target_compile_features(consumer PRIVATE cxx_std_17)
+          EOF
+          cat > verify/cpp-consumer/main.cpp <<'EOF'
+          #include <loxperm/loxperm.h>
+          int main() {
+              loxperm_chain_t c;
+              return loxperm_chain_init(&c, nullptr, 0) == LOXPERM_OK ? 0 : 1;
+          }
+          EOF
+          cmake -S verify/cpp-consumer -B verify/cpp-consumer/build -DCMAKE_PREFIX_PATH="${PWD}/dist-wide"
+          cmake --build verify/cpp-consumer/build
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2

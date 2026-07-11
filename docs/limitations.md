@@ -53,11 +53,19 @@ not:
 - prevent bypass during plant alarms
 - track bypass uptime against a maintenance window
 
+The latest bypass operator ID is readable through `loxperm_bypass_operator_id()`.
+The portable snapshot wire format stores bypass state, but not every runtime diagnostic field.
+
 Those are policy decisions. Implement them in the layer above.
 
 ## Snapshot integrity is the caller's job
 
-`loxperm_snapshot_t` does not include a CRC or other integrity checks. If you persist snapshots to
+`loxperm_snapshot_t` is an in-memory transfer object. It is not a stable on-disk format.
+
+Use the fixed wire helpers (`loxperm_snapshot_encode()`, `loxperm_snapshot_decode()`, and
+`loxperm_snapshot_load_wire()`) when you need portable bytes.
+
+The wire format does not include a CRC or other integrity checks. If you persist snapshots to
 flash/EEPROM or any backend that can tear writes, you must provide integrity and atomicity at that layer
 (for example: CRC, double-buffering with sequence numbers, or transactional storage).
 
@@ -66,6 +74,8 @@ Snapshot load validates:
 - snapshot version and condition count
 - masks are within the chain size
 - bypass/latched bits are consistent with condition definitions
+- portable wire snapshots also validate magic, byte order, fixed size, reserved bytes, schema ID,
+  and caller-supplied config ID before loading
 
 It does not protect against corrupted or torn snapshots beyond these checks.
 
@@ -99,3 +109,7 @@ Caller provides monotonic `uint32_t` ms. Wrap is handled (49.7 days).
 Single-delay maximum is half the wrap window (~24.85 days). Clock jumps
 cause undefined behaviour for that update.
 
+## Byte requirements
+
+The library requires 8-bit bytes. That is asserted at compile time because
+the portable wire format is defined in raw bytes.

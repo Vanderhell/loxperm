@@ -15,6 +15,27 @@ This repository uses small C executables (no external unit test framework) and C
 - Source: `tests/test_loxperm_wide_mask.c`
 - Built with: `LOXPERM_WIDE_MASK=1`
 
+## Compile-time configuration checks
+
+- CTest names:
+  - `loxperm_config_c_1`
+  - `loxperm_config_c_32`
+  - `loxperm_config_c_64`
+  - `loxperm_config_c_0`
+  - `loxperm_config_c_33`
+  - `loxperm_config_c_65`
+- Source coverage:
+  - default mask boundary success/failure
+  - wide-mask boundary success/failure
+
+## C++ inclusion checks
+
+- CTest names:
+  - `loxperm_cpp11_include`
+  - `loxperm_cpp17_include`
+  - `loxperm_cpp20_include`
+- These compile a small C++ translation unit that includes `loxperm/loxperm.h`.
+
 ## Sanitizers (ASan/UBSan)
 
 - Enabled by CMake option: `LOXPERM_ENABLE_SANITIZERS=ON`
@@ -40,8 +61,8 @@ CI performs:
   - `find_package(loxperm CONFIG REQUIRED)`
   - `target_link_libraries(... loxperm::loxperm)`
   - `#include <loxperm/loxperm.h>`
+  - C99, C11, and C++17 consumers
 
 ## Example smoke
 
 CI builds examples (default CMake options) and runs them where the host platform permits.
-

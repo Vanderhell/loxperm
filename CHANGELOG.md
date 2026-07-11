@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+### Added
+- Portable snapshot wire encode/decode helpers with explicit config/schema IDs and fixed byte order.
+- Compile-time configuration checks for default and wide mask boundaries plus C++ inclusion smoke tests.
+- External consumer smoke coverage for installed C/C++ packages.
+
+### Changed
+- Tightened first-out ordering to use monotonic denial-entry sequencing while keeping timestamp diagnostics.
+- Preserved one-shot transition flags until they are explicitly consumed.
+- Moved strict warnings off the exported package interface and onto project-owned targets only.
+- Added bypass operator metadata getter for the latest toggle operator ID.
+- Strengthened release workflow version checks and archive smoke tests.
+
 ## [0.1.0]
 
 ### Added

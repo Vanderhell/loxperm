@@ -3,7 +3,7 @@
 [![ci](https://github.com/Vanderhell/loxperm/actions/workflows/ci.yml/badge.svg)](https://github.com/Vanderhell/loxperm/actions/workflows/ci.yml)
 [![release](https://github.com/Vanderhell/loxperm/actions/workflows/release.yml/badge.svg)](https://github.com/Vanderhell/loxperm/actions/workflows/release.yml)
 
-Permissive / interlock evaluator with an explainable deny mask for embedded C firmware.
+`loxperm` - Liquid Oxygen Permissive / Interlock Evaluator.
 
 `loxperm` is a small, heap-free C99 single-header library that evaluates a set of named conditions and decides whether an action is permitted to start
 (permissive) or must continue to be allowed (interlock).
@@ -46,6 +46,8 @@ if (loxperm_is_permitted(&pump_start, now_ms)) {
 - Header-only: all public API + implementation in `include/loxperm/loxperm.h` (caller includes the header).
 - Heap-free: caller-owned state in `loxperm_chain_t`.
 - Deterministic: no floating point, no hidden global mutable runtime state.
+- Portable snapshots: fixed-byte wire helpers with explicit config/schema IDs.
+- Compatibility: C99 primary, with C11/C17/C23 and C++ consumers verified by compile checks.
 
 ## Layout
 
@@ -89,12 +91,15 @@ And include:
 
 ## Docs
 
+- Quickstart: `docs/quickstart.md`
+- API: `docs/api.md`
+- Cookbook: `docs/cookbook.md`
 - Scenarios and test mapping: `docs/scenarios.md`
 - Limitations: `docs/limitations.md`
 - Test plan: `docs/test-plan.md`
 - Evidence matrix: `docs/evidence-matrix.md`
+- Release checklist: `docs/release-checklist.md`
 
 ## License
 
 MIT. See `LICENSE`.
-
