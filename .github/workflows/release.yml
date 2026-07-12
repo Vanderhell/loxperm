@@ -47,9 +47,9 @@ jobs:
           fi
 
           awk -v ver="${VER}" '
-            $0 ~ ("^## \\[" ver "\\]") { in=1; next }
-            in && $0 ~ "^## \\[" { exit }
-            in { print }
+            $0 ~ ("^## \\[" ver "\\]") { inside=1; next }
+            inside && $0 ~ "^## \\[" { exit }
+            inside { print }
           ' CHANGELOG.md > release_notes.md
 
           if [ ! -s release_notes.md ]; then
